@@ -1,6 +1,8 @@
 var traverse = require("../lib").default;
 var assert   = require("assert");
 var _        = require("lodash");
+var babylon  = require("babylon");
+var t        = require("babel-types");
 
 suite("traverse", function () {
   var ast = {
@@ -144,5 +146,32 @@ suite("traverse", function () {
     paths2.forEach(function (p, i) {
       assert.notStrictEqual(p, paths[i]);
     });
+  });
+
+  test("shared node leads to wrong path", function() {
+    var code = "function y() { f(); } function z() { g(); }";
+    var ast = babylon.parse(code);
+    var foo = t.memberExpression(t.identifier("foo"), t.identifier("bar"))
+
+    traverse(ast, {
+      CallExpression: function (path) {
+        path.node.callee = foo;
+      },
+    });
+
+    traverse.clearCache();
+
+    var paths = [];
+    traverse(ast, {
+      ReferencedIdentifier: function (path) {
+        if (path.node.name !== "foo") {
+          return;
+        }
+
+        paths.push(path);
+      },
+    });
+
+    assert.notStrictEqual(paths[0], paths[1]);
   });
 });
