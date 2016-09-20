@@ -1,4 +1,5 @@
 var Whitespace = require("../lib/whitespace");
+var Printer    = require("../lib/printer");
 var generate   = require("../lib");
 var assert     = require("assert");
 var parse      = require("babylon").parse;
@@ -9,10 +10,10 @@ var _          = require("lodash");
 suite("generation", function () {
   test("completeness", function () {
     _.each(t.VISITOR_KEYS, function (keys, type) {
-      assert.ok(!!generate.CodeGenerator.prototype[type], type + " should exist");
+      assert.ok(!!Printer.prototype[type], type + " should exist");
     });
 
-    _.each(generate.CodeGenerator.prototype, function (fn, type) {
+    _.each(Printer.prototype, function (fn, type) {
       if (!/[A-Z]/.test(type[0])) return;
       assert.ok(t.VISITOR_KEYS[type], type + " should not exist");
     });
@@ -43,7 +44,13 @@ suite("generation", function () {
       version: 3,
       sources: [ 'a.js', 'b.js' ],
       names: [],
-      mappings: 'AAAA,SAAS,EAAT,CAAa,GAAb,EAAkB;AAAE,UAAQ,GAAR,CAAY,GAAZ,EAAF;CAAlB;;GCAG,OAAH',
+      mappings: 'AAAA,SAASA,EAAT,CAAaC,GAAb,EAAkB;AAAEC,UAAQC,GAAR,CAAYF,GAAZ;AAAmB;;ACAvCD,GAAG,OAAH',
+      names: [
+        'hi',
+        'msg',
+        'console',
+        'log',
+      ],
       sourcesContent: [
       'function hi (msg) { console.log(msg); }\n',
         'hi(\'hello\');\n'
@@ -52,6 +59,40 @@ suite("generation", function () {
 
     chai.expect(generated.code).to.equal(
       "function hi(msg) {\n  console.log(msg);\n}\n\nhi('hello');",
+      "code was incorrectly generated"
+    );
+  });
+
+  test("identifierName", function () {
+    var code = "function foo() { bar; }\n";
+
+    var ast = parse(code, { filename: "inline" }).program;
+    var fn = ast.body[0];
+
+    var id = fn.id;
+    id.name += "2";
+    id.loc.identifierName = "foo";
+
+    var id2 = fn.body.body[0].expression;
+    id2.name += "2";
+    id2.loc.identiferName = "bar";
+
+    var generated = generate.default(ast, {
+      filename: "inline",
+      sourceFileName: "inline",
+      sourceMaps: true
+    }, code);
+
+    chai.expect(generated.map).to.deep.equal({
+      version: 3,
+      sources: ["inline"],
+      names: ["foo", "bar" ],
+      mappings: "AAAA,SAASA,IAAT,GAAe;AAAEC;AAAM",
+      sourcesContent: [ "function foo() { bar; }\n" ]
+    }, "sourcemap was incorrectly generated");
+
+    chai.expect(generated.code).to.equal(
+      "function foo2() {\n  bar2;\n}",
       "code was incorrectly generated"
     );
   });
@@ -81,8 +122,27 @@ suite("programmatic generation", function() {
     var ast = parse(generate.default(ifStatement).code);
     assert.equal(ast.program.body[0].consequent.type, 'BlockStatement');
   });
-});
 
+  test("flow object indentation", function() {
+    var objectStatement = t.objectTypeAnnotation(
+      [
+        t.objectTypeProperty(
+          t.identifier('bar'),
+          t.stringTypeAnnotation()
+        ),
+      ],
+      null,
+      null
+    );
+
+    var output = generate.default(objectStatement).code;
+    assert.equal(output, [
+      '{',
+      '  bar: string;',
+      '}',
+    ].join('\n'));
+  });
+});
 
 suite("whitespace", function () {
   test("empty token list", function () {

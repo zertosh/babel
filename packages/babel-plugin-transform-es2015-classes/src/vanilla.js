@@ -88,7 +88,7 @@ export default class ClassTransformer {
     this.classId = this.node.id;
 
     // this is the name of the binding that will **always** reference the class we've constructed
-    this.classRef = this.node.id || this.scope.generateUidIdentifier("class");
+    this.classRef = this.node.id ? t.identifier(this.node.id.name) : this.scope.generateUidIdentifier("class");
 
     this.superName = this.node.superClass || t.identifier("Function");
     this.isDerived = !!this.node.superClass;
@@ -345,9 +345,13 @@ export default class ClassTransformer {
       }
     } else {
       bareSuperNode = optimiseCall(
-        t.callExpression(
-          t.memberExpression(t.identifier("Object"), t.identifier("getPrototypeOf")),
-          [this.classRef]
+        t.logicalExpression(
+          "||",
+          t.memberExpression(this.classRef, t.identifier("__proto__")),
+          t.callExpression(
+            t.memberExpression(t.identifier("Object"), t.identifier("getPrototypeOf")),
+            [this.classRef]
+          )
         ),
         t.thisExpression(),
         bareSuperNode.arguments

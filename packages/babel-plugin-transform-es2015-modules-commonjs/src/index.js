@@ -33,7 +33,7 @@ let buildExportsAssignment = template(`
 
 let buildExportAll = template(`
   Object.keys(OBJECT).forEach(function (key) {
-    if (key === "default") return;
+    if (key === "default" || key === "__esModule") return;
     Object.defineProperty(exports, key, {
       enumerable: true,
       get: function () {
@@ -170,6 +170,8 @@ export default function () {
 
           let requires = Object.create(null);
 
+          let exportDefaultFound = false;
+
           function addRequire(source, blockHoist) {
             let cached = requires[source];
             if (cached) return cached;
@@ -238,6 +240,10 @@ export default function () {
 
               path.remove();
             } else if (path.isExportDefaultDeclaration()) {
+              if (exportDefaultFound) {
+                throw path.buildCodeFrameError("Only one default export allowed per module.");
+              }
+
               let declaration = path.get("declaration");
               if (declaration.isFunctionDeclaration()) {
                 let id = declaration.node.id;
@@ -261,15 +267,21 @@ export default function () {
                   ]);
                 } else {
                   path.replaceWith(buildExportsAssignment(defNode, t.toExpression(declaration.node)));
+
+                  // Manualy re-queue `export default class {}` expressions so that the ES3 transform
+                  // has an opportunity to convert them. Ideally this would happen automatically from the
+                  // replaceWith above. See #4140 for more info.
+                  path.parentPath.requeue(path.get("expression.left"));
                 }
               } else {
                 path.replaceWith(buildExportsAssignment(t.identifier("default"), declaration.node));
 
                 // Manualy re-queue `export default foo;` expressions so that the ES3 transform
                 // has an opportunity to convert them. Ideally this would happen automatically from the
-                // replaceWith above. See T7166 for more info.
+                // replaceWith above. See #4140 for more info.
                 path.parentPath.requeue(path.get("expression.left"));
               }
+              exportDefaultFound = true;
             } else if (path.isExportNamedDeclaration()) {
               let declaration = path.get("declaration");
               if (declaration.node) {
@@ -308,37 +320,35 @@ export default function () {
               }
 
               let specifiers = path.get("specifiers");
-              if (specifiers.length) {
-                let nodes = [];
-                let source = path.node.source;
-                if (source) {
-                  let ref = addRequire(source.value, path.node._blockHoist);
+              let nodes = [];
+              let source = path.node.source;
+              if (source) {
+                let ref = addRequire(source.value, path.node._blockHoist);
 
-                  for (let specifier of specifiers) {
-                    if (specifier.isExportNamespaceSpecifier()) {
-                      // todo
-                    } else if (specifier.isExportDefaultSpecifier()) {
-                      // todo
-                    } else if (specifier.isExportSpecifier()) {
-                      if (specifier.node.local.name === "default") {
-                        topNodes.push(buildExportsFrom(t.stringLiteral(specifier.node.exported.name), t.memberExpression(t.callExpression(this.addHelper("interopRequireDefault"), [ref]), specifier.node.local)));
-                      } else {
-                        topNodes.push(buildExportsFrom(t.stringLiteral(specifier.node.exported.name), t.memberExpression(ref, specifier.node.local)));
-                      }
-                      nonHoistedExportNames[specifier.node.exported.name] = true;
+                for (let specifier of specifiers) {
+                  if (specifier.isExportNamespaceSpecifier()) {
+                    // todo
+                  } else if (specifier.isExportDefaultSpecifier()) {
+                    // todo
+                  } else if (specifier.isExportSpecifier()) {
+                    if (specifier.node.local.name === "default") {
+                      topNodes.push(buildExportsFrom(t.stringLiteral(specifier.node.exported.name), t.memberExpression(t.callExpression(this.addHelper("interopRequireDefault"), [ref]), specifier.node.local)));
+                    } else {
+                      topNodes.push(buildExportsFrom(t.stringLiteral(specifier.node.exported.name), t.memberExpression(ref, specifier.node.local)));
                     }
-                  }
-                } else {
-                  for (let specifier of specifiers) {
-                    if (specifier.isExportSpecifier()) {
-                      addTo(exports, specifier.node.local.name, specifier.node.exported);
-                      nonHoistedExportNames[specifier.node.exported.name] = true;
-                      nodes.push(buildExportsAssignment(specifier.node.exported, specifier.node.local));
-                    }
+                    nonHoistedExportNames[specifier.node.exported.name] = true;
                   }
                 }
-                path.replaceWithMultiple(nodes);
+              } else {
+                for (let specifier of specifiers) {
+                  if (specifier.isExportSpecifier()) {
+                    addTo(exports, specifier.node.local.name, specifier.node.exported);
+                    nonHoistedExportNames[specifier.node.exported.name] = true;
+                    nodes.push(buildExportsAssignment(specifier.node.exported, specifier.node.local));
+                  }
+                }
               }
+              path.replaceWithMultiple(nodes);
             } else if (path.isExportAllDeclaration()) {
               let exportNode = buildExportAll({
                 OBJECT: addRequire(path.node.source.value, path.node._blockHoist)

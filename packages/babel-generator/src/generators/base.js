@@ -12,7 +12,7 @@ export function Program(node: Object) {
 }
 
 export function BlockStatement(node: Object) {
-  this.push("{");
+  this.token("{");
   this.printInnerComments(node);
   if (node.body.length) {
     this.newline();
@@ -21,10 +21,16 @@ export function BlockStatement(node: Object) {
     if (node.directives && node.directives.length) this.newline();
 
     this.printSequence(node.body, node, { indent: true });
-    if (!this.format.retainLines && !this.format.concise) this.removeLast("\n");
+    this.removeTrailingNewline();
+
+    this.source("end", node.loc);
+
+    if (!this.endsWith("\n")) this.newline();
+
     this.rightBrace();
   } else {
-    this.push("}");
+    this.source("end", node.loc);
+    this.token("}");
   }
 }
 
@@ -35,6 +41,4 @@ export function Directive(node: Object) {
   this.semicolon();
 }
 
-export function DirectiveLiteral(node: Object) {
-  this.push(this._stringLiteral(node.value));
-}
+export { StringLiteral as DirectiveLiteral } from "./types";

@@ -6,8 +6,8 @@ import type File from "../../../file";
 import traverse from "babel-traverse";
 import { visitor as tdzVisitor } from "./tdz";
 import * as t from "babel-types";
-import values from "lodash/object/values";
-import extend from "lodash/object/extend";
+import values from "lodash/values";
+import extend from "lodash/extend";
 import template from "babel-template";
 
 export default function () {
@@ -16,7 +16,7 @@ export default function () {
       VariableDeclaration(path, file) {
         let { node, parent, scope } = path;
         if (!isBlockScoped(node)) return;
-        convertBlockScopedToVar(path, parent, scope, true);
+        convertBlockScopedToVar(path, null, parent, scope, true);
 
         if (node._tdzThis) {
           let nodes = [node];
@@ -51,14 +51,24 @@ export default function () {
         if (replace) path.replaceWith(replace);
       },
 
-      "BlockStatement|Program"(path, file) {
-        if (!t.isLoop(path.parent)) {
+      CatchClause(path, file) {
+        let { parent, scope } = path;
+        let blockScoping = new BlockScoping(null, path.get("body"), parent, scope, file);
+        blockScoping.run();
+      },
+
+      "BlockStatement|SwitchStatement|Program"(path, file) {
+        if (!ignoreBlock(path)) {
           let blockScoping = new BlockScoping(null, path, path.parent, path.scope, file);
           blockScoping.run();
         }
       }
     }
   };
+}
+
+function ignoreBlock(path) {
+  return t.isLoop(path.parent) || t.isCatchClause(path.parent);
 }
 
 let buildRetCheck = template(`
@@ -72,8 +82,10 @@ function isBlockScoped(node) {
   return true;
 }
 
-function convertBlockScopedToVar(path, parent, scope, moveBindingsToParent = false) {
-  const { node } = path;
+function convertBlockScopedToVar(path, node, parent, scope, moveBindingsToParent = false) {
+  if (!node) {
+    node = path.node;
+  }
   // https://github.com/babel/babel/issues/255
   if (!t.isFor(parent)) {
     for (let i = 0; i < node.declarations.length; i++) {
@@ -99,48 +111,6 @@ function convertBlockScopedToVar(path, parent, scope, moveBindingsToParent = fal
 
 function isVar(node) {
   return t.isVariableDeclaration(node, { kind: "var" }) && !isBlockScoped(node);
-}
-
-function replace(path, node, scope, remaps) {
-  let remap = remaps[node.name];
-  if (!remap) return;
-
-  let ownBinding = scope.getBindingIdentifier(node.name);
-  if (ownBinding === remap.binding) {
-    scope.rename(node.name, remap.uid);
-  } else {
-    // scope already has it's own binding that doesn't
-    // match the one we have a stored replacement for
-    if (path) path.skip();
-  }
-}
-
-let replaceVisitor = {
-  ReferencedIdentifier(path, remaps) {
-    replace(path, path.node, path.scope, remaps);
-  },
-
-  AssignmentExpression(path, remaps) {
-    let ids = path.getBindingIdentifiers();
-    for (let name in ids) {
-      replace(null, ids[name], path.scope, remaps);
-    }
-  },
-};
-
-function traverseReplace(node, parent, scope, remaps) {
-  if (t.isIdentifier(node)) {
-    replace(node, parent, scope, remaps);
-  }
-
-  if (t.isAssignmentExpression(node)) {
-    let ids = t.getBindingIdentifiers(node);
-    for (let name in ids) {
-      replace(ids[name], parent, scope, remaps);
-    }
-  }
-
-  scope.traverse(node, replaceVisitor, remaps);
 }
 
 let letReferenceBlockVisitor = traverse.visitors.merge([{
@@ -357,8 +327,8 @@ class BlockScoping {
       }
     }
   }
+
   remap() {
-    let hasRemaps = false;
     let letRefs   = this.letReferences;
     let scope     = this.scope;
 
@@ -366,7 +336,6 @@ class BlockScoping {
     // we have to check if any of our let variables collide with
     // those in upper scopes and then if they do, generate a uid
     // for them and replace all references with it
-    let remaps = Object.create(null);
 
     for (let key in letRefs) {
       // just an Identifier node we collected in `getLetReferences`
@@ -375,29 +344,16 @@ class BlockScoping {
 
       // todo: could skip this if the colliding binding is in another function
       if (scope.parentHasBinding(key) || scope.hasGlobal(key)) {
-        let uid = scope.generateUidIdentifier(ref.name).name;
-        ref.name = uid;
+        // The same identifier might have been bound separately in the block scope and
+        // the enclosing scope (e.g. loop or catch statement), so we should handle both
+        // individually
+        if (scope.hasOwnBinding(key))
+          scope.rename(ref.name);
 
-        hasRemaps = true;
-        remaps[key] = remaps[uid] = {
-          binding: ref,
-          uid: uid
-        };
+        if (this.blockPath.scope.hasOwnBinding(key))
+          this.blockPath.scope.rename(ref.name);
       }
     }
-
-    if (!hasRemaps) return;
-
-    //
-
-    let loop = this.loop;
-    if (loop) {
-      traverseReplace(loop.right, loop, scope, remaps);
-      traverseReplace(loop.test, loop, scope, remaps);
-      traverseReplace(loop.update, loop, scope, remaps);
-    }
-
-    this.blockPath.traverse(replaceVisitor, remaps);
   }
 
   wrapClosure() {
@@ -433,15 +389,14 @@ class BlockScoping {
     let params = values(outsideRefs);
     let args   = values(outsideRefs);
 
-    // build the closure that we're going to wrap the block with
-    let fn = t.functionExpression(null, params, t.blockStatement(block.body));
+    const isSwitch = this.blockPath.isSwitchStatement();
+
+    // build the closure that we're going to wrap the block with, possible wrapping switch(){}
+    let fn = t.functionExpression(null, params, t.blockStatement(isSwitch ? [block] : block.body));
     fn.shadow = true;
 
     // continuation
     this.addContinuations(fn);
-
-    // replace the current block body with the one we're going to build
-    block.body = this.body;
 
     let ref = fn;
 
@@ -471,6 +426,10 @@ class BlockScoping {
     }
 
     this.buildClosure(ret, call);
+
+    // replace the current block body with the one we're going to build
+    if (isSwitch) this.blockPath.replaceWithMultiple(this.body);
+    else block.body = this.body;
   }
 
   /**
@@ -536,9 +495,26 @@ class BlockScoping {
         if (t.isClassDeclaration(declar) || t.isFunctionDeclaration(declar) || isBlockScoped(declar)) {
           let declarPath = this.blockPath.get("body")[i];
           if (isBlockScoped(declar)) {
-            convertBlockScopedToVar(declarPath, block, this.scope);
+            convertBlockScopedToVar(declarPath, null, block, this.scope);
           }
           declarators = declarators.concat(declar.declarations || declar);
+        }
+      }
+    }
+
+    if (block.cases) {
+      for (let i = 0; i < block.cases.length; i++) {
+        let consequents = block.cases[i].consequent;
+
+        for (let j = 0; j < consequents.length; j++) {
+          let declar = consequents[j];
+          if (t.isClassDeclaration(declar) || t.isFunctionDeclaration(declar) || isBlockScoped(declar)) {
+            let declarPath = this.blockPath.get("cases")[i];
+            if (isBlockScoped(declar)) {
+              convertBlockScopedToVar(declarPath, declar, block, this.scope);
+            }
+            declarators = declarators.concat(declar.declarations || declar);
+          }
         }
       }
     }
@@ -662,11 +638,13 @@ class BlockScoping {
           single.consequent[0]
         ));
       } else {
-        // https://github.com/babel/babel/issues/998
-        for (let i = 0; i < cases.length; i++) {
-          let caseConsequent = cases[i].consequent[0];
-          if (t.isBreakStatement(caseConsequent) && !caseConsequent.label) {
-            caseConsequent.label = this.loopLabel = this.loopLabel || this.scope.generateUidIdentifier("loop");
+        if (this.loop) {
+          // https://github.com/babel/babel/issues/998
+          for (let i = 0; i < cases.length; i++) {
+            let caseConsequent = cases[i].consequent[0];
+            if (t.isBreakStatement(caseConsequent) && !caseConsequent.label) {
+              caseConsequent.label = this.loopLabel = this.loopLabel || this.scope.generateUidIdentifier("loop");
+            }
           }
         }
 

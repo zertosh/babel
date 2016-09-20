@@ -124,6 +124,7 @@ export default function defineType(
     aliases?: Array<string>;
     builder?: Array<string>;
     inherits?: string;
+    deprecatedAlias?: string;
   } = {},
 ) {
   let inherits = (opts.inherits && store[opts.inherits]) || {};
@@ -145,6 +146,9 @@ export default function defineType(
   for (let key in opts.fields) {
     let field = opts.fields[key];
 
+    if (opts.builder.indexOf(key) === -1) {
+      field.optional = true;
+    }
     if (field.default === undefined) {
       field.default = null;
     } else if (!field.validate) {

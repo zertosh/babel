@@ -17,6 +17,9 @@ defineType("AssignmentPattern", {
     },
     right: {
       validate: assertNodeType("Expression")
+    },
+    decorators: {
+      validate: chain(assertValueType("array"), assertEach(assertNodeType("Decorator")))
     }
   }
 });
@@ -27,13 +30,16 @@ defineType("ArrayPattern", {
   fields: {
     elements: {
       validate: chain(assertValueType("array"), assertEach(assertNodeType("Expression")))
+    },
+    decorators: {
+      validate: chain(assertValueType("array"), assertEach(assertNodeType("Decorator")))
     }
   }
 });
 
 defineType("ArrowFunctionExpression", {
   builder: ["params", "body", "async"],
-  visitor: ["params", "body", "returnType"],
+  visitor: ["params", "body", "returnType", "typeParameters"],
   aliases: ["Scopable", "Function", "BlockParent", "FunctionParent", "Expression", "Pureish"],
   fields: {
     params: {
@@ -285,6 +291,9 @@ defineType("ObjectPattern", {
   fields: {
     properties: {
       validate: chain(assertValueType("array"), assertEach(assertNodeType("RestProperty", "Property")))
+    },
+    decorators: {
+      validate: chain(assertValueType("array"), assertEach(assertNodeType("Decorator")))
     }
   }
 });

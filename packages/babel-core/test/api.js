@@ -76,6 +76,38 @@ suite("api", function () {
     });
   });
 
+  test("option wrapPluginVisitorMethod", function () {
+    var calledRaw = 0;
+    var calledIntercept = 0;
+
+    babel.transform("function foo() { bar(foobar); }", {
+      wrapPluginVisitorMethod: function (pluginAlias, visitorType, callback) {
+        if (pluginAlias !== "foobar") {
+          return callback;
+        }
+
+        assert.equal(visitorType, "enter");
+
+        return function () {
+          calledIntercept++;
+          return callback.apply(this, arguments);
+        };
+      },
+
+      plugins: [new Plugin({
+        name: "foobar",
+        visitor: {
+          "Program|Identifier": function () {
+            calledRaw++;
+          }
+        }
+      })]
+    });
+
+    assert.equal(calledRaw, 4);
+    assert.equal(calledIntercept, 4);
+  });
+
   test("pass per preset", function () {
     var aliasBaseType = null;
 
@@ -432,46 +464,46 @@ suite("api", function () {
     var oldBabelEnv = process.env.BABEL_ENV;
     var oldNodeEnv = process.env.NODE_ENV;
 
-    before(function () {
+    setup(function () {
+      // Tests need to run with the default and specific values for these. They
+      // need to be cleared for each test.
       delete process.env.BABEL_ENV;
       delete process.env.NODE_ENV;
     });
 
-    after(function () {
+    suiteTeardown(function () {
       process.env.BABEL_ENV = oldBabelEnv;
       process.env.NODE_ENV = oldNodeEnv;
     });
 
     test("default", function () {
-      return transformAsync("foo;", {
+      var result = babel.transform("foo;", {
         env: {
           development: { code: false }
         }
-      }).then(function (result) {
-        assert.equal(result.code, undefined);
       });
+
+      assert.equal(result.code, undefined);
     });
 
     test("BABEL_ENV", function () {
       process.env.BABEL_ENV = "foo";
-      return transformAsync("foo;", {
+      var result = babel.transform("foo;", {
         env: {
           foo: { code: false }
         }
-      }).then(function (result) {
-        assert.equal(result.code, undefined);
       });
+      assert.equal(result.code, undefined);
     });
 
     test("NODE_ENV", function () {
       process.env.NODE_ENV = "foo";
-      return transformAsync("foo;", {
+      var result = babel.transform("foo;", {
         env: {
           foo: { code: false }
         }
-      }).then(function (result) {
-        assert.equal(result.code, undefined);
       });
+      assert.equal(result.code, undefined);
     });
   });
 

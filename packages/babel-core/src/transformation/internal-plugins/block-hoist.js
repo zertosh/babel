@@ -1,5 +1,5 @@
 import Plugin from "../plugin";
-import sortBy from "lodash/collection/sortBy";
+import sortBy from "lodash/sortBy";
 
 export default new Plugin({
   /**
@@ -12,6 +12,8 @@ export default new Plugin({
    *  - 2 Priority over normal nodes
    *  - 3 We want this to be at the **very** top
    */
+
+  name: "internal.blockHoist",
 
   visitor: {
     Block: {
@@ -26,7 +28,7 @@ export default new Plugin({
         }
         if (!hasChange) return;
 
-        node.body = sortBy(node.body, function(bodyNode){
+        node.body = sortBy(node.body, function(bodyNode) {
           let priority = bodyNode && bodyNode._blockHoist;
           if (priority == null) priority = 1;
           if (priority === true) priority = 2;

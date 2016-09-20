@@ -80,6 +80,14 @@ defineType("DeclareModule", {
   }
 });
 
+defineType("DeclareModuleExports", {
+  visitor: ["typeAnnotation"],
+  aliases: ["Flow", "FlowDeclaration", "Statement", "Declaration"],
+  fields: {
+    // todo
+  }
+});
+
 defineType("DeclareTypeAlias", {
   visitor: ["id", "typeParameters", "right"],
   aliases: ["Flow", "FlowDeclaration", "Statement", "Declaration"],
@@ -228,6 +236,14 @@ defineType("TypeAnnotation", {
 defineType("TypeCastExpression", {
   visitor: ["expression", "typeAnnotation"],
   aliases: ["Flow", "ExpressionWrapper", "Expression"],
+  fields: {
+    // todo
+  }
+});
+
+defineType("TypeParameter", {
+  visitor: ["bound"],
+  aliases: ["Flow"],
   fields: {
     // todo
   }

@@ -1,31 +1,23 @@
 import sourceMap from "source-map";
-import * as t from "babel-types";
 
 /**
  * Build a sourcemap.
  */
 
 export default class SourceMap {
-  constructor(position, opts, code) {
-    this.position = position;
-    this.opts     = opts;
-    this.last     = {generated: {}, original: {}};
+  constructor(opts, code) {
+    this._opts     = opts;
+    this._map = new sourceMap.SourceMapGenerator({
+      file: opts.sourceMapTarget,
+      sourceRoot: opts.sourceRoot
+    });
 
-    if (opts.sourceMaps) {
-      this.map = new sourceMap.SourceMapGenerator({
-        file: opts.sourceMapTarget,
-        sourceRoot: opts.sourceRoot
+    if (typeof code === "string") {
+      this._map.setSourceContent(opts.sourceFileName, code);
+    } else if (typeof code === "object") {
+      Object.keys(code).forEach((sourceFileName) => {
+        this._map.setSourceContent(sourceFileName, code[sourceFileName]);
       });
-
-      if (typeof code === "string") {
-        this.map.setSourceContent(opts.sourceFileName, code);
-      } else if (typeof code === "object") {
-        Object.keys(code).forEach((sourceFileName) => {
-          this.map.setSourceContent(sourceFileName, code[sourceFileName]);
-        });
-      }
-    } else {
-      this.map = null;
     }
   }
 
@@ -34,55 +26,47 @@ export default class SourceMap {
    */
 
   get() {
-    let map = this.map;
-    if (map) {
-      return map.toJSON();
-    } else {
-      return map;
-    }
+    return this._map.toJSON();
   }
 
   /**
-   * Mark a node's generated position, and add it to the sourcemap.
+   * Mark the current generated position with a source position. May also be passed null line/column
+   * values to insert a mapping to nothing.
    */
 
-  mark(node) {
-    let loc = node.loc;
-    if (!loc) return; // no location info
+  mark(
+    generatedLine: number,
+    generatedColumn: number,
+    line: number,
+    column: number,
+    identifierName: ?string,
+    filename: ?string,
+  ) {
+    // Adding an empty mapping at the start of a generated line just clutters the map.
+    if (this._lastGenLine !== generatedLine && line === null) return;
 
-    let map = this.map;
-    if (!map) return; // no source map
-
-    if (t.isProgram(node) || t.isFile(node)) return; // illegal mapping nodes
-
-    let position = this.position;
-
-    let generated = {
-      line: position.line,
-      column: position.column
-    };
-
-    let original = loc.start;
-
-    // Avoid emitting duplicates on either side. Duplicated
-    // original values creates unnecesssarily large source maps
-    // and increases compile time. Duplicates on the generated
-    // side can lead to incorrect mappings.
-    if (comparePosition(original, this.last.original)
-        || comparePosition(generated, this.last.generated)) {
+    // If this mapping points to the same source location as the last one, we can ignore it since
+    // the previous one covers it.
+    if (this._lastGenLine === generatedLine && this._lastSourceLine === line &&
+      this._lastSourceColumn === column) {
       return;
     }
 
-    this.last = {
-      source: loc.filename || this.opts.sourceFileName,
-      generated: generated,
-      original: original
-    };
+    this._lastGenLine = generatedLine;
+    this._lastSourceLine = line;
+    this._lastSourceColumn = column;
 
-    map.addMapping(this.last);
+    this._map.addMapping({
+      name: identifierName,
+      generated: {
+        line: generatedLine,
+        column: generatedColumn,
+      },
+      source: line == null ? null : filename || this._opts.sourceFileName,
+      original: line == null ? null : {
+        line: line,
+        column: column,
+      },
+    });
   }
-}
-
-function comparePosition(a, b) {
-  return a.line === b.line &&  a.column === b.column;
 }

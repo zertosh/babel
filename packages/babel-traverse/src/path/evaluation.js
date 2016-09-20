@@ -51,6 +51,7 @@ export function evaluateTruthy(): boolean {
 export function evaluate(): { confident: boolean; value: any } {
   let confident = true;
   let deoptPath: ?NodePath;
+  let seen = new Map;
 
   function deopt(path) {
     if (!confident) return;
@@ -66,7 +67,38 @@ export function evaluate(): { confident: boolean; value: any } {
     value:     value
   };
 
+  // we wrap the _evaluate method so we can track `seen` nodes, we push an item
+  // to the map before we actually evaluate it so we can deopt on self recursive
+  // nodes such as:
+  //
+  //   var g = a ? 1 : 2,
+  //       a = g * this.foo
+  //
   function evaluate(path) {
+    let { node } = path;
+
+    if (seen.has(node)) {
+      let existing = seen.get(node);
+      if (existing.resolved) {
+        return existing.value;
+      } else {
+        deopt(path);
+        return;
+      }
+    } else {
+      let item = { resolved: false };
+      seen.set(node, item);
+
+      let val = _evaluate(path);
+      if (confident) {
+        item.resolved = true;
+        item.value = val;
+      }
+      return val;
+    }
+  }
+
+  function _evaluate(path) {
     if (!confident) return;
 
     let { node } = path;
@@ -136,6 +168,11 @@ export function evaluate(): { confident: boolean; value: any } {
 
     if (path.isReferencedIdentifier()) {
       let binding = path.scope.getBinding(node.name);
+
+      if (binding && binding.constantViolations.length > 0) {
+        return deopt(binding.path);
+      }
+
       if (binding && binding.hasValue) {
         return binding.value;
       } else {

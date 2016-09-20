@@ -1,8 +1,8 @@
 import toFastProperties from "to-fast-properties";
-import compact from "lodash/array/compact";
-import loClone from "lodash/lang/clone";
-import each from "lodash/collection/each";
-import uniq from "lodash/array/uniq";
+import compact from "lodash/compact";
+import loClone from "lodash/clone";
+import each from "lodash/each";
+import uniq from "lodash/uniq";
 
 let t = exports;
 
@@ -12,9 +12,12 @@ let t = exports;
  */
 
 function registerType(type: string) {
-  let is = t[`is${type}`] = function (node, opts) {
-    return t.is(type, node, opts);
-  };
+  let is = t[`is${type}`];
+  if (!is) {
+    is = t[`is${type}`] = function (node, opts) {
+      return t.is(type, node, opts);
+    };
+  }
 
   t[`assert${type}`] = function (node, opts) {
     opts = opts || {};
@@ -26,7 +29,27 @@ function registerType(type: string) {
 
 //
 
-export * from "./constants";
+export {
+  STATEMENT_OR_BLOCK_KEYS,
+  FLATTENABLE_KEYS,
+  FOR_INIT_KEYS,
+  COMMENT_KEYS,
+  LOGICAL_OPERATORS,
+  UPDATE_OPERATORS,
+  BOOLEAN_NUMBER_BINARY_OPERATORS,
+  EQUALITY_BINARY_OPERATORS,
+  COMPARISON_BINARY_OPERATORS,
+  BOOLEAN_BINARY_OPERATORS,
+  NUMBER_BINARY_OPERATORS,
+  BINARY_OPERATORS,
+  BOOLEAN_UNARY_OPERATORS,
+  NUMBER_UNARY_OPERATORS,
+  STRING_UNARY_OPERATORS,
+  UNARY_OPERATORS,
+  INHERIT_KEYS,
+  BLOCK_SCOPED_SYMBOL,
+  NOT_LOCAL_BINDING
+} from "./constants";
 
 import "./definitions/init";
 import { VISITOR_KEYS, ALIAS_KEYS, NODE_FIELDS, BUILDER_KEYS, DEPRECATED_KEYS } from "./definitions";
@@ -95,6 +118,10 @@ export function is(type: string, node: Object, opts?: Object): boolean {
 
 export function isType(nodeType: string, targetType: string): boolean {
   if (nodeType === targetType) return true;
+
+  // This is a fast-path. If the test above failed, but an alias key is found, then the
+  // targetType was a primary node type, so there's no need to check the aliases.
+  if (t.ALIAS_KEYS[targetType]) return false;
 
   let aliases: ?Array<string> = t.FLIPPED_ALIAS_KEYS[targetType];
   if (aliases) {
@@ -372,12 +399,6 @@ function _inheritComments(key, child, parent) {
   }
 }
 
-
-// Can't use import because of cyclic dependency between babel-traverse
-// and this module (babel-types). This require needs to appear after
-// we export the TYPES constant.
-const traverse = require("babel-traverse").default;
-
 /**
  * Inherit all contextual properties from `parent` node to `child` node.
  */
@@ -403,7 +424,6 @@ export function inherits(child: Object, parent: Object): Object {
   }
 
   t.inheritsComments(child, parent);
-  traverse.copyCache(parent, child);
 
   return child;
 }
@@ -431,8 +451,101 @@ export function isNode(node?): boolean {
 toFastProperties(t);
 toFastProperties(t.VISITOR_KEYS);
 
+/**
+ * A prefix AST traversal implementation implementation.
+ */
+
+export function traverseFast(node: Node, enter: (node: Node) => void, opts?: Object) {
+  if (!node) return;
+
+  let keys = t.VISITOR_KEYS[node.type];
+  if (!keys) return;
+
+  opts = opts || {};
+  enter(node, opts);
+
+  for (let key of keys) {
+    let subNode = node[key];
+
+    if (Array.isArray(subNode)) {
+      for (let node of subNode) {
+        traverseFast(node, enter, opts);
+      }
+    } else {
+      traverseFast(subNode, enter, opts);
+    }
+  }
+}
+
+const CLEAR_KEYS: Array = [
+  "tokens",
+  "start", "end", "loc",
+  "raw", "rawValue"
+];
+
+const CLEAR_KEYS_PLUS_COMMENTS: Array = t.COMMENT_KEYS.concat([
+  "comments"
+]).concat(CLEAR_KEYS);
+
+/**
+ * Remove all of the _* properties from a node along with the additional metadata
+ * properties like location data and raw token data.
+ */
+
+export function removeProperties(node: Node, opts?: Object): void {
+  opts = opts || {};
+  let map = opts.preserveComments ? CLEAR_KEYS : CLEAR_KEYS_PLUS_COMMENTS;
+  for (let key of map) {
+    if (node[key] != null) node[key] = undefined;
+  }
+
+  for (let key in node) {
+    if (key[0] === "_" && node[key] != null) node[key] = undefined;
+  }
+
+  let syms: Array<Symbol> = Object.getOwnPropertySymbols(node);
+  for (let sym of syms) {
+    node[sym] = null;
+  }
+}
+
+export function removePropertiesDeep(tree: Node, opts?: Object): Node {
+  traverseFast(tree, removeProperties, opts);
+  return tree;
+}
+
 //
-export * from "./retrievers";
-export * from "./validators";
-export * from "./converters";
-export * from "./flow";
+export {
+  getBindingIdentifiers,
+  getOuterBindingIdentifiers
+} from "./retrievers";
+
+export {
+  isBinding,
+  isReferenced,
+  isValidIdentifier,
+  isLet,
+  isBlockScoped,
+  isVar,
+  isSpecifierDefault,
+  isScope,
+  isImmutable
+} from "./validators";
+
+export {
+  toComputedKey,
+  toSequenceExpression,
+  toKeyAlias,
+  toIdentifier,
+  toBindingIdentifierName,
+  toStatement,
+  toExpression,
+  toBlock,
+  valueToNode
+} from "./converters";
+
+export {
+  createUnionTypeAnnotation,
+  removeTypeDuplicates,
+  createTypeAnnotationBasedOnTypeof
+} from "./flow";

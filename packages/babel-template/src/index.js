@@ -1,8 +1,8 @@
 /* eslint max-len: 0 */
 
-import cloneDeep from "lodash/lang/cloneDeep";
-import assign from "lodash/object/assign";
-import has from "lodash/object/has";
+import cloneDeep from "lodash/cloneDeep";
+import assign from "lodash/assign";
+import has from "lodash/has";
 import traverse from "babel-traverse";
 import * as babylon from "babylon";
 import * as t from "babel-types";
@@ -24,16 +24,19 @@ export default function (code: string, opts?: Object): Function {
     }
   }
 
+  opts = assign({
+    allowReturnOutsideFunction: true,
+    allowSuperOutsideMethod: true,
+    preserveComments: false,
+  }, opts);
+
   let getAst = function () {
     let ast;
 
     try {
-      ast = babylon.parse(code, assign({
-        allowReturnOutsideFunction: true,
-        allowSuperOutsideMethod: true
-      }, opts));
+      ast = babylon.parse(code, opts);
 
-      ast = traverse.removeProperties(ast);
+      ast = traverse.removeProperties(ast, {preserveComments: opts.preserveComments});
 
       traverse.cheap(ast, function (node) {
         node[FROM_TEMPLATE] = true;

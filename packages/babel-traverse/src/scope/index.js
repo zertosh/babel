@@ -1,11 +1,11 @@
 /* eslint max-len: 0 */
 
-import includes from "lodash/collection/includes";
-import repeating from "repeating";
+import includes from "lodash/includes";
+import repeat from "lodash/repeat";
 import Renamer from "./lib/renamer";
 import type NodePath from "../path";
 import traverse from "../index";
-import defaults from "lodash/object/defaults";
+import defaults from "lodash/defaults";
 import * as messages from "babel-messages";
 import Binding from "./binding";
 import globals from "globals";
@@ -23,17 +23,17 @@ let _crawlCallsCount = 0;
  * node itself containing all scopes it has been associated with.
  */
 
-function getCache(node, parentScope, self) {
-  let scopes: Array<Scope> = scopeCache.get(node) || [];
+function getCache(path, parentScope, self) {
+  let scopes: Array<Scope> = scopeCache.get(path.node) || [];
 
   for (let scope of scopes) {
-    if (scope.parent === parentScope) return scope;
+    if (scope.parent === parentScope && scope.path === path) return scope;
   }
 
   scopes.push(self);
 
-  if (!scopeCache.has(node)) {
-    scopeCache.set(node, scopes);
+  if (!scopeCache.has(path.node)) {
+    scopeCache.set(path.node, scopes);
   }
 }
 
@@ -73,20 +73,21 @@ let collectorVisitor = {
   },
 
   ExportDeclaration: {
-    exit({ node, scope }) {
+    exit(path) {
+      const { node, scope } = path;
       let declar = node.declaration;
       if (t.isClassDeclaration(declar) || t.isFunctionDeclaration(declar)) {
         let id = declar.id;
         if (!id) return;
 
         let binding = scope.getBinding(id.name);
-        if (binding) binding.reference();
+        if (binding) binding.reference(path);
       } else if (t.isVariableDeclaration(declar)) {
         for (let decl of (declar.declarations: Array<Object>)) {
           let ids = t.getBindingIdentifiers(decl);
           for (let name in ids) {
             let binding = scope.getBinding(name);
-            if (binding) binding.reference();
+            if (binding) binding.reference(path);
           }
         }
       }
@@ -150,7 +151,7 @@ export default class Scope {
       return parentScope;
     }
 
-    let cached = getCache(path.node, parentScope, this);
+    let cached = getCache(path, parentScope, this);
     if (cached) return cached;
 
     this.uid = uid++;
@@ -367,7 +368,7 @@ export default class Scope {
   }
 
   dump() {
-    let sep = repeating("-", 60);
+    let sep = repeat("-", 60);
     console.log(sep);
     let scope = this;
     do {
