@@ -329,12 +329,21 @@ export default class OptionManager {
   }
 
   init(opts: Object = {}): Object {
-    for (let config of buildConfigChain(opts, this.log)) {
+    let builder = buildConfigChain(opts, this.log);
+    for (let config of builder.configs) {
       this.mergeOptions(config);
     }
 
     // normalise
     this.normaliseOptions(opts);
+
+    builder.mergeConfig({
+      options: this.options
+    });
+
+    for (let config of builder.configs) {
+      this.mergeOptions(config);
+    }
 
     return this.options;
   }

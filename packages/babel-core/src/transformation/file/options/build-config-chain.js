@@ -26,7 +26,7 @@ function exists(filename) {
 export default function buildConfigChain(opts: Object = {}, log?: Logger) {
   let filename = opts.filename;
   let builder = new ConfigChainBuilder(log);
-  
+
   // resolve all .babelrc files
   if (opts.babelrc !== false) {
     builder.findConfigs(filename);
@@ -37,8 +37,8 @@ export default function buildConfigChain(opts: Object = {}, log?: Logger) {
     alias: "base",
     dirname: filename && path.dirname(filename)
   });
-  
-  return builder.configs;
+
+  return builder;
 }
 
 class ConfigChainBuilder {
