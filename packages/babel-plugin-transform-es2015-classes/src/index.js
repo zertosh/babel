@@ -42,7 +42,7 @@ export default function ({ types: t }) {
         let Constructor = VanillaTransformer;
         if (state.opts.loose) Constructor = LooseTransformer;
 
-        path.replaceWith(new Constructor(path, state.file).run());
+        path.replaceWith(new Constructor(path, state.file, state.opts).run());
       }
     }
   };

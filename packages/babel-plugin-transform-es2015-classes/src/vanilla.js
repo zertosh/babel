@@ -61,7 +61,7 @@ let findThisesVisitor = visitors.merge([noMethodVisitor, {
 }]);
 
 export default class ClassTransformer {
-  constructor(path: NodePath, file) {
+  constructor(path: NodePath, file, opts) {
     this.parent = path.parent;
     this.scope  = path.scope;
     this.node   = path.node;
@@ -81,6 +81,7 @@ export default class ClassTransformer {
     this.pushedConstructor = false;
     this.pushedInherits    = false;
     this.isLoose           = false;
+    this.removeClassCallCheck = opts.removeClassCallCheck;
 
     this.superThises = [];
 
@@ -123,10 +124,12 @@ export default class ClassTransformer {
     this.buildBody();
 
     // make sure this class isn't directly called
-    constructorBody.body.unshift(t.expressionStatement(t.callExpression(file.addHelper("classCallCheck"), [
-      t.thisExpression(),
-      this.classRef
-    ])));
+    if (!this.removeClassCallCheck) {
+      constructorBody.body.unshift(t.expressionStatement(t.callExpression(file.addHelper("classCallCheck"), [
+        t.thisExpression(),
+        this.classRef
+      ])));
+    }
 
     body = body.concat(this.staticPropBody.map((fn) => fn(this.classRef)));
 
