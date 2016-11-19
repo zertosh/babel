@@ -16,5 +16,8 @@
     "mkdirp": "^0.5.1",
     "pirates": "^2.1.2",
     "source-map-support": "^0.4.2"
+  },
+  "devDependencies": {
+    "default-require-extensions": "^1.0.0"
   }
 }

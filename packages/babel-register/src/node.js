@@ -32,8 +32,8 @@ let transformOpts = {};
 let ignore;
 let only;
 
-let piratesRevert        = null;
-let maps          = {};
+let piratesRevert = null;
+let maps = {};
 
 let cwd = process.cwd();
 
